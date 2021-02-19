@@ -128,9 +128,10 @@ uintptr_t init_mmap(uintptr_t kernel_base_ptr, uintptr_t kernel_top_ptr)
     // TODO: Revise the logic, there are many other possible cases where memory corruption might happen!
     if (memory_management_region_start == kernel_base_ptr)
     {
-        printk("Masking the kernel portion of the first free memory hole as non-usable...\n");
+        printk("[MMAP] Region Overlap!\n   |_- Details:\n       memory_management_region_start: 0x%x kernel_base_ptr: 0x%x\n       memory_management_region_end: 0x%x kernel_top_ptr: 0x%x\n", memory_management_region_start, kernel_base_ptr, memory_management_region_end, kernel_top_ptr);
+        printk("[MMAP] Masking the kernel portion of the first free memory hole as non-usable...");
         memory_management_region_start = (memory_management_region_start + ((kernel_top_ptr - kernel_base_ptr) + 1));
-        printk("memory_management_region_start: 0x%x\n", memory_management_region_start);
+        printk("[MMAP] New memory_management_region_start: 0x%x\n", memory_management_region_start);
         return memory_management_region_start;
     } else {
         return memory_management_region_start;
