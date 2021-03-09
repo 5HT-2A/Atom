@@ -122,7 +122,7 @@ uintptr_t init_mmap(uintptr_t kernel_base_ptr, uintptr_t kernel_top_ptr)
         }
     }
 
-    printk("memory_management_region_start: 0x%x\n", memory_management_region_start);
+    printk("[MMAP] memory_management_region_start: 0x%x\n", memory_management_region_start);
 
     // Check if they collide!
     // TODO: Revise the logic, there are many other possible cases where memory corruption might happen!

@@ -6,8 +6,8 @@
 
 extern uint32_t *__KERNEL_END;
 // A bitset of frames - used or free.
-static uint32_t max_frames = NULL; //Max number of frames for installed memory
-static uint32_t *frames_Array; //Pointer to array with the frames status (0 FREE, 1 USED)
+static uint32_t total_frames = NULL; //Max number of frames for installed memory
+static uint32_t *frame_bitmap_array; //Pointer to array with the frames status (0 FREE, 1 USED)
 
 uint32_t first_free_frame_index();
 bool test_frame(uint32_t frame_addr);
@@ -57,7 +57,7 @@ void set_frame(uint32_t frame_addr){
   uint32_t frame = frame_addr/PAGE_SIZE;
   uint32_t idx = INDEX_FROM_BIT(frame);
   uint32_t off = OFFSET_FROM_BIT(frame);
-  frames_Array[idx] |= (0x1 << off);
+  frame_bitmap_array[idx] |= (0x1 << off);
 }
 
 
@@ -66,7 +66,7 @@ void clear_frame(uint32_t frame_addr){
   uint32_t frame = frame_addr/PAGE_SIZE;
   uint32_t idx = INDEX_FROM_BIT(frame);
   uint32_t off = OFFSET_FROM_BIT(frame);
-  frames_Array[idx] &= ~(0x1 << off);
+  frame_bitmap_array[idx] &= ~(0x1 << off);
 }
 
 // Static function to test if a bit is set.
@@ -74,18 +74,18 @@ bool test_frame(uint32_t frame_addr){
   uint32_t frame = frame_addr/PAGE_SIZE;
   uint32_t idx = INDEX_FROM_BIT(frame);
   uint32_t off = OFFSET_FROM_BIT(frame);
-  return (frames_Array[idx] & (0x1 << off)) != 0;
+  return (frame_bitmap_array[idx] & (0x1 << off)) != 0;
 }
 
 // Static function to find the first free frame.
 uint32_t first_free_frame_index(){
   uint32_t i, j;
-  for (i = 0; i < INDEX_FROM_BIT(max_frames); i++){
-    if (frames_Array[i] != 0xFFFFFFFF){ // nothing free, exit early.
+  for (i = 0; i < INDEX_FROM_BIT(total_frames); i++){
+    if (frame_bitmap_array[i] != 0xFFFFFFFF){ // nothing free, exit early.
       // at least one bit is free here.
       for (j = 0; j < 32; j++){
         uint32_t toTest = 0x1 << j;
-        if ( !(frames_Array[i]&toTest) ){
+        if ( !(frame_bitmap_array[i]&toTest) ){
           return j+(i*8*4);
         }
       }
@@ -103,7 +103,7 @@ uint32_t first_frame() {
 }
 
 
-void init_mmu(uintptr_t kernel_base_ptr, uintptr_t kernel_top_ptr)
+void init_mmu(uintptr_t *kernel_base_ptr, uintptr_t *kernel_top_ptr)
 {
   // HACK: Memory region provided by mmap_init is
   // ensured to be AT LEAST, 1MB in size, which is probably more
@@ -120,39 +120,58 @@ void init_mmu(uintptr_t kernel_base_ptr, uintptr_t kernel_top_ptr)
   // have a bug where we overwrite kernel parts!
   // Kernel Pos after PADDR -> VADDR 0xC0100000;
   
-  printk("kernel_base_ptr: 0x%x, kernel_top_ptr: 0x%x\n", kernel_base_ptr, kernel_top_ptr);
+  printk("[MMU] kernel_base_ptr: 0x%x, kernel_top_ptr: 0x%x\n", kernel_base_ptr, kernel_top_ptr);
   
   init_mmap(kernel_base_ptr, kernel_top_ptr);
 
-  uint32_t mem_tam = (memory_management_region_end - memory_management_region_start);
-  printk("end: 0x%x; start: 0x%x; mem_tam = %d\n", memory_management_region_end, memory_management_region_start, mem_tam);
-  max_frames = mem_tam / PAGE_SIZE;
+  size_t memory_size = (memory_management_region_end - memory_management_region_start);
+  printk("[MMU] Free Physical Memory Start: 0x%x; End: 0x%x. Size: %d MB\n", memory_management_region_start, memory_management_region_end, (((memory_size)/1024)/1024));
+  total_frames = memory_size / PAGE_SIZE;
   
-  //Direccion para el bitmap despues del kernel
-  uint32_t next_v_addr = (uint32_t)(((uint32_t) &__KERNEL_END) + 4);
-  printk("kernel_end: 0x%x, next_v_addr 0x%x, real_addr: 0x%x\n\n", (uint32_t) &__KERNEL_END, next_v_addr, (uint32_t)(((uint32_t) &__KERNEL_END) + 4));
-  frames_Array = next_v_addr;
-  //Obtenemos el tamaño del array
-  uint32_t array_tam = INDEX_FROM_BIT(max_frames);
-  if(array_tam % 32 != 0){
-    array_tam += 1;
+  // Place the next available virtual address the very first available location after the kernel ends
+  // NOTE: Add up Virtual Base (0xC0000000) to mem_mgmt_reg_start to avoid referencing the physical (Unmapped) region
+  uintptr_t first_free_virtual_addr = (memory_management_region_start + 0xC0000000);
+
+  printk("[MMU] First Available Virtual Address 0x%x, Physical: 0x%x\n", first_free_virtual_addr, (first_free_virtual_addr - 0xC0000000));
+
+  frame_bitmap_array = first_free_virtual_addr;
+
+  // Get the total size of the bitmap array containing all the frames
+  size_t frame_bitmap_array_size = INDEX_FROM_BIT(total_frames);
+
+  if (frame_bitmap_array_size % 32 != 0)
+  {
+    frame_bitmap_array_size += 1;
   }
-  //Limpiamos el contenido de la memoria
-  memset(frames_Array, 0, (sizeof(uint32_t) * array_tam));
-  printk("frames_arr: 0x%x\n", (uint32_t)frames_Array);
-  // Iniciamos el kd
-  kmalloc_init(next_v_addr , KERNEL_VIRTUAL_BASE);
 
-  // Le pedimos una direccion, esta garantizado que reserva el espacio del array
-  uint32_t array_reserved = (uint32_t *) kmalloc (sizeof(uint32_t) * array_tam);
-  printk("Frames Array: 0x%x : 0x%x\n", frames_Array, array_reserved);
+  // Clear the entire bitmap array
+  memset(frame_bitmap_array, 0, (sizeof(size_t) * frame_bitmap_array_size));
 
-  printk("Max num frames: %d; TAM: %d bytes\n", max_frames, mem_tam);
+  printk("[MMU] Frames-Containing Bitmap Array @ 0x%x\n", (uintptr_t)frame_bitmap_array);
 
-  extern void *stack_bottom, *stack_top;
-  printk("stack_bot: 0x%x, stack_top: 0x%x\n", (void*)&stack_bottom, (uint32_t)&stack_top);
+  // Start the memory allocation routines
+  kmalloc_init(first_free_virtual_addr, KERNEL_VIRTUAL_BASE);
 
-  if(max_frames <= 4){
+#ifdef DEBUG_KMALLOC
+  // This function merely checks if and only if the first allocation we do, resides inside the regions we provided.
+  // This might come handy later on when we have to deal with merging two memory locations that contain available (Or Reclaimable) memory.
+  uintptr_t kmalloc_test = (uintptr_t *) kmalloc (sizeof(uintptr_t) * frame_bitmap_array_size);
+  printk("[DEBUG] Frames Array @ 0x%x; First Allocation @ 0x%x\n", frame_bitmap_array, kmalloc_test);
+  
+  // Check if the kmalloc'd location resides on a higher memory position than the bitmap array containing the frames
+  if (kmalloc_test >= frame_bitmap_array)
+  {
+    printk("[DEBUG] Kmalloc test passed\n");
+  } else {
+    printk("[DEBUG] Kmalloc test failed\n");
+  }
+#endif
+
+  printk("[MMU] Total frames: %d (%d bytes)\n", total_frames, memory_size);
+
+  // TODO: Re-adjust the minimum needed memory for the kernel to work correctly; for now, just use a rudimentary 16MB boundary.
+  if (total_frames <= 4)
+  {
     //PANIC("INSTALLED MEMORY BELOW 16MB");
     printk("INSTALLED MEMORY BELOW 16MB");
     asm("cli;hlt");

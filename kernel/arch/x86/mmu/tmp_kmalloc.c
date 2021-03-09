@@ -10,9 +10,9 @@ void assert_kd_active();
 
 // Inner globals vars
 bool stoped = false;
-uint32_t base_addr = NULL;
-uint32_t next_v_address;
-uint32_t next_p_address;
+uintptr_t base_addr = NULL;
+uintptr_t next_v_address;
+uintptr_t next_p_address;
 
 void assert_kd_active() {
 	if (base_addr == NULL){
@@ -58,13 +58,17 @@ uint32_t kdmalloc_int(uint32_t sz, bool align, uint32_t *phy){
 
 // Implementations of alloc.h
 
-uint32_t kmalloc_init(uint32_t start, uint32_t base) {
+void kmalloc_init(uintptr_t start, uintptr_t base)
+{
 	next_v_address = start;
-	printk("placement address: 0x%x\n", next_v_address);
-	if ((next_v_address & PAGE_MASK_L) != 0) {
+	printk("[MALLOC] Placement Address @ 0x%x\n", next_v_address);
+
+	if ((next_v_address & PAGE_MASK_L) != 0)
+	{
 		next_v_address &= PAGE_MASK_H;
 		next_v_address += PAGE_TAM;
 	}
+
 	next_p_address = next_v_address - base;
 	base_addr = next_p_address;
 }

@@ -96,7 +96,7 @@ void _kmain(unsigned int initium_signature, uint32_t *initial_ebp, uint32_t *ini
         printkfail("Failed to enable Interrupts");
     }
 
-    // Let's init the MMU with a basic contiguous memory zone where we can place things
+    // Initialize the MMU
     init_mmu((uintptr_t) &KERNEL_PHYSADDR_START, (uintptr_t) &KERNEL_PHYSADDR_END);
 
     printkok("Initialized MMU");
